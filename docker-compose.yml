@@ -2,6 +2,10 @@ services:
   minio:
     image: minio/minio
     container_name: minio
+<<<<<<< HEAD
+=======
+    command: server /data --console-address ":9001"
+>>>>>>> 8715bcd59290a91b6abfd621b3bd8f343acb0794
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -10,4 +14,46 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
     volumes:
+<<<<<<< HEAD
       - ./data:/data
+=======
+      - ./data:/data
+
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: dvf
+      POSTGRES_PASSWORD: dvf
+      POSTGRES_DB: dvf
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  dagster:
+    build: ./orchestration/dagster
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      DAGSTER_POSTGRES_HOST: postgres
+      DAGSTER_POSTGRES_USER: dvf
+      DAGSTER_POSTGRES_PASSWORD: dvf
+      DAGSTER_POSTGRES_DB: dvf
+
+  metabase:
+    image: metabase/metabase
+    ports:
+      - "3001:3000"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+
+# NOTE: this is a starting skeleton for Sprint 0.
+# P1 (ingestion/infra) owns filling in the Dagster build context,
+# env vars, and any additional services in later sprints.
+>>>>>>> 8715bcd59290a91b6abfd621b3bd8f343acb0794

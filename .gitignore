@@ -1,2 +1,26 @@
 data/
+<<<<<<< HEAD
 data_raw/__pycache__/
+=======
+data_raw/
+minio_data/
+postgres_data/
+
+# Dagster
+.dagster/
+dagster_home/
+
+# ML
+ml/models/*.pkl
+ml/models/*.joblib
+
+# Env / secrets
+.env
+*.env.local
+secrets/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+>>>>>>> 8715bcd59290a91b6abfd621b3bd8f343acb0794
