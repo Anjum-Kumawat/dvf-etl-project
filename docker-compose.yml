@@ -1,8 +1,7 @@
-version: "3.9"
-
 services:
   minio:
     image: minio/minio
+    container_name: minio
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -11,7 +10,7 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - minio_data:/data
+      - ./data:/data
 
   postgres:
     image: postgres:16
@@ -45,9 +44,8 @@ services:
       - postgres
 
 volumes:
-  minio_data:
   postgres_data:
 
 # NOTE: this is a starting skeleton for Sprint 0.
 # P1 (ingestion/infra) owns filling in the Dagster build context,
-# env vars, and any additional services (e.g. a model-serving container in Sprint 6).
+# env vars, and any additional services in later sprints.
