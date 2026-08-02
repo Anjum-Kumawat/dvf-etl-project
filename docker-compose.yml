@@ -3,6 +3,7 @@ version: "3.9"
 services:
   minio:
     image: minio/minio
+    container_name: minio
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -11,7 +12,7 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - minio_data:/data
+      - ./data:/data
 
   postgres:
     image: postgres:16
@@ -24,18 +25,19 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  dagster:
-    build: ./orchestration/dagster
-    ports:
-      - "3000:3000"
-    depends_on:
-      - postgres
-      - minio
-    environment:
-      DAGSTER_POSTGRES_HOST: postgres
-      DAGSTER_POSTGRES_USER: dvf
-      DAGSTER_POSTGRES_PASSWORD: dvf
-      DAGSTER_POSTGRES_DB: dvf
+  # dagster:
+  #   build: ./orchestration/dagster
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - postgres
+  #     - minio
+  #   environment:
+  #     DAGSTER_POSTGRES_HOST: postgres
+  #     DAGSTER_POSTGRES_USER: dvf
+  #     DAGSTER_POSTGRES_PASSWORD: dvf
+  #     DAGSTER_POSTGRES_DB: dvf
+  # TODO(sprint-6): re-enable once orchestration/dagster/Dockerfile exists
 
   metabase:
     image: metabase/metabase
@@ -45,7 +47,6 @@ services:
       - postgres
 
 volumes:
-  minio_data:
   postgres_data:
 
 # NOTE: this is a starting skeleton for Sprint 0.
