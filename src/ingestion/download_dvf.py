@@ -1,29 +1,25 @@
-"""
-Download one raw DVF file from data.gouv.fr.
-Scope: department 75 (Paris), year 2024 (pilot scope).
-The file is streamed to disk in chunks rather than loaded into memory,
-so the same script works on larger departments without saturating RAM.
-This script only downloads. Upload to MinIO is handled separately.
-"""
-
+import argparse
 import requests
 from pathlib import Path
 
+BASE_URL = "https://files.data.gouv.fr/geo-dvf/latest/csv/{year}/departements/{dept}.csv.gz"
 
-URL = "https://files.data.gouv.fr/geo-dvf/latest/csv/2024/departements/75.csv.gz"
-DEST = Path("data_raw/75.csv.gz")
+parser = argparse.ArgumentParser()
+parser.add_argument("--year", required=True)
+parser.add_argument("--dept", required=True)
+args = parser.parse_args()
 
-DEST.parent.mkdir(parents=True, exist_ok=True)
+url = BASE_URL.format(year=args.year, dept=args.dept)
+dest = Path(f"data_raw/{args.year}/{args.dept}.csv.gz")
+dest.parent.mkdir(parents=True, exist_ok=True)
 
-print(f"Downloading {URL}")
-
-response = requests.get(URL, stream=True)
+print(f"Downloading {url}")
+response = requests.get(url, stream=True)
 response.raise_for_status()
 
-with open(DEST, "wb") as f:
+with open(dest, "wb") as f:
     for chunk in response.iter_content(chunk_size=8192):
         f.write(chunk)
 
-size_mb = DEST.stat().st_size / 1024 / 1024
-
-print(f"Saved to {DEST} ({size_mb:.1f} MB)")
+size_mb = dest.stat().st_size / 1024 / 1024
+print(f"Saved to {dest} ({size_mb:.1f} MB)")
