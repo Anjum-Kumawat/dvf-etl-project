@@ -1,6 +1,7 @@
 """
 Download a DVF departmental csv.gz file for a given year and department.
-Validates the HTTP response and the archive integrity before accepting the file.
+Validates the HTTP response and archive integrity, then computes and stores
+a SHA-256 checksum in a manifest for future idempotency checks.
 
 Usage:
     python -m src.ingestion.dvf --year 2024 --department 75
@@ -12,9 +13,12 @@ Configuration (no hardcoded credentials or local paths):
 
 import argparse
 import gzip
+import hashlib
+import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -22,6 +26,7 @@ import requests
 BASE_URL = "https://files.data.gouv.fr/geo-dvf/latest/csv/{year}/departements/{department}.csv.gz"
 DATA_DIR = os.environ.get("DATA_RAW_DIR", "data_raw")
 TIMEOUT = int(os.environ.get("DVF_TIMEOUT", "30"))
+MANIFEST_PATH = Path(DATA_DIR) / "manifest.json"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +49,43 @@ def validate_archive(path: Path) -> bool:
     except (gzip.BadGzipFile, EOFError, OSError) as exc:
         logger.error("Archive integrity check failed for %s: %s", path, exc)
         return False
+
+
+def compute_checksum(path: Path) -> str:
+    sha256 = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def load_manifest() -> dict:
+    if MANIFEST_PATH.exists():
+        with open(MANIFEST_PATH, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def save_manifest(manifest: dict) -> None:
+    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(MANIFEST_PATH, "w") as f:
+        json.dump(manifest, f, indent=2, sort_keys=True)
+
+
+def record_manifest_entry(year: str, department: str, path: Path, checksum: str, status: str) -> None:
+    manifest = load_manifest()
+    key = f"{year}/{department}"
+    manifest[key] = {
+        "year": year,
+        "department": department,
+        "path": str(path),
+        "checksum_sha256": checksum,
+        "size_bytes": path.stat().st_size,
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+    }
+    save_manifest(manifest)
+    logger.info("Manifest updated for %s: %s (%s)", key, checksum, status)
 
 
 def download_dvf(year: str, department: str) -> Path:
@@ -79,13 +121,21 @@ def download_dvf(year: str, department: str) -> Path:
             "Size mismatch for %s: expected %s bytes, got %s bytes",
             dest, expected_size, actual_size,
         )
+        record_manifest_entry(year, department, dest, checksum="", status="failed_size_mismatch")
         raise ValueError(f"Incomplete download: {dest}")
 
     if not validate_archive(dest):
+        record_manifest_entry(year, department, dest, checksum="", status="failed_corrupt")
         raise ValueError(f"Corrupt or invalid archive: {dest}")
 
+    checksum = compute_checksum(dest)
+    record_manifest_entry(year, department, dest, checksum=checksum, status="success")
+
     size_mb = actual_size / 1024 / 1024
-    logger.info("Download succeeded and archive validated: %s (%.1f MB)", dest, size_mb)
+    logger.info(
+        "Download succeeded and archive validated: %s (%.1f MB, sha256=%s)",
+        dest, size_mb, checksum,
+    )
     return dest
 
 
