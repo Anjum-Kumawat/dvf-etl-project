@@ -79,3 +79,9 @@ Services once running: MinIO console, PostgreSQL, Dagster UI, Metabase. See
 
 See [`docs/sprint_plan.md`](./docs/sprint_plan.md) for the full 8-sprint breakdown, including
 where the predictive-model workstream plugs into the pipeline each sprint.
+
+## Testing
+
+Bronze ingestion is covered by an automated test suite using **pytest**.
+
+Run the complete suite:

@@ -13,6 +13,7 @@ from botocore.exceptions import ClientError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from checksum import compute_sha256
+from paths import local_path, object_key
 
 BUCKET = "bronze"
 
@@ -26,8 +27,7 @@ def get_client():
     )
 
 
-def get_remote_checksum(client, bucket, key):
-    """Return the stored sha256 metadata for an existing object, or None if missing."""
+def get_remote_checksum(client, bucket: str, key: str):
     try:
         response = client.head_object(Bucket=bucket, Key=key)
     except ClientError as exc:
@@ -38,13 +38,30 @@ def get_remote_checksum(client, bucket, key):
     return response["Metadata"].get("sha256")
 
 
-def upload_with_checksum(client, source: Path, bucket: str, key: str, checksum: str):
-    client.upload_file(
-        str(source),
-        bucket,
-        key,
-        ExtraArgs={"Metadata": {"sha256": checksum}},
-    )
+def upload(year: str, dept: str, client=None):
+    """
+    Upload one DVF partition to Bronze if missing or changed.
+    Returns (status, local_checksum, remote_checksum_before) where status
+    is one of "uploaded", "skipped", "changed".
+    """
+    client = client or get_client()
+    source = local_path(year, dept)
+    key = object_key(year, dept)
+
+    if not source.exists():
+        raise RuntimeError(f"local file not found: {source}")
+
+    local_checksum = compute_sha256(source)
+    remote_checksum = get_remote_checksum(client, BUCKET, key)
+
+    if remote_checksum is None:
+        client.upload_file(str(source), BUCKET, key, ExtraArgs={"Metadata": {"sha256": local_checksum}})
+        return "uploaded", local_checksum, remote_checksum
+    elif remote_checksum == local_checksum:
+        return "skipped", local_checksum, remote_checksum
+    else:
+        client.upload_file(str(source), BUCKET, key, ExtraArgs={"Metadata": {"sha256": local_checksum}})
+        return "changed", local_checksum, remote_checksum
 
 
 def main():
@@ -53,29 +70,25 @@ def main():
     parser.add_argument("--dept", required=True)
     args = parser.parse_args()
 
-    source = Path(f"data_raw/{args.year}/{args.dept}.csv.gz")
-    key = f"dvf/{args.year}/{args.dept}.csv.gz"
+    key = object_key(args.year, args.dept)
 
-    if not source.exists():
-        print(f"ERROR: local file not found: {source}", file=sys.stderr)
+    try:
+        status, local_checksum, remote_checksum_before = upload(args.year, args.dept)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    local_checksum = compute_sha256(source)
-    client = get_client()
-    remote_checksum = get_remote_checksum(client, BUCKET, key)
-
-    if remote_checksum is None:
-        upload_with_checksum(client, source, BUCKET, key, local_checksum)
+    if status == "uploaded":
         print(f"Uploaded: {BUCKET}/{key} (sha256={local_checksum})")
-    elif remote_checksum == local_checksum:
+    elif status == "skipped":
         print(f"Skipped: {BUCKET}/{key} unchanged (sha256={local_checksum})")
     else:
-        upload_with_checksum(client, source, BUCKET, key, local_checksum)
         print(
             f"Changed: {BUCKET}/{key} checksum differed "
-            f"(old={remote_checksum}, new={local_checksum}) — re-uploaded"
+            f"(old={remote_checksum_before}, new={local_checksum}) — re-uploaded"
         )
 
+    client = get_client()
     response = client.head_object(Bucket=BUCKET, Key=key)
     stored_checksum = response["Metadata"].get("sha256", "")
     size_mb = response["ContentLength"] / 1024 / 1024
