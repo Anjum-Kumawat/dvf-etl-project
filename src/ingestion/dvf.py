@@ -86,12 +86,31 @@ def record_manifest_entry(year: str, department: str, path: Path, checksum: str,
     }
     save_manifest(manifest)
     logger.info("Manifest updated for %s: %s (%s)", key, checksum, status)
+    
+    
+def already_ingested(year: str, department: str, dest: Path) -> bool:
+    """True if this year/department was already successfully ingested
+    and the local file still matches its recorded checksum."""
+    manifest = load_manifest()
+    key = f"{year}/{department}"
+    entry = manifest.get(key)
+    if not entry or entry.get("status") != "success":
+        return False
+    if not dest.exists():
+        return False
+    if not validate_archive(dest):
+        return False
+    return compute_checksum(dest) == entry.get("checksum_sha256")
 
 
-def download_dvf(year: str, department: str) -> Path:
+def download_dvf(year: str, department: str, force: bool = False) -> Path:
     url = build_url(year, department)
     dest = Path(DATA_DIR) / year / f"{department}.csv.gz"
     dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if not force and already_ingested(year, department, dest):
+        logger.info("Already ingested and unchanged: %s (skipping download)", dest)
+        return dest
 
     logger.info("Starting download: %s -> %s", url, dest)
 
@@ -143,13 +162,13 @@ def main():
     parser = argparse.ArgumentParser(description="Download a DVF departmental csv.gz file.")
     parser.add_argument("--year", required=True, help="Transaction year, e.g. 2024")
     parser.add_argument("--department", required=True, help="Department code, e.g. 75")
+    parser.add_argument("--force", action="store_true", help="Re-download even if already ingested")
     args = parser.parse_args()
 
     try:
-        download_dvf(args.year, args.department)
+        download_dvf(args.year, args.department, force=args.force)
     except (requests.exceptions.RequestException, ValueError):
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
