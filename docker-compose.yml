@@ -11,7 +11,6 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - ./data:/data
-
   postgres:
     image: postgres:16
     ports:
@@ -22,30 +21,27 @@ services:
       POSTGRES_DB: dvf
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
-  dagster:
-    build: ./orchestration/dagster
-    ports:
-      - "3000:3000"
-    depends_on:
-      - postgres
-      - minio
-    environment:
-      DAGSTER_POSTGRES_HOST: postgres
-      DAGSTER_POSTGRES_USER: dvf
-      DAGSTER_POSTGRES_PASSWORD: dvf
-      DAGSTER_POSTGRES_DB: dvf
-
+  # dagster:
+  #   build: ./orchestration/dagster
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - postgres
+  #     - minio
+  #   environment:
+  #     DAGSTER_POSTGRES_HOST: postgres
+  #     DAGSTER_POSTGRES_USER: dvf
+  #     DAGSTER_POSTGRES_PASSWORD: dvf
+  #     DAGSTER_POSTGRES_DB: dvf
+  # TODO(sprint-6): re-enable once orchestration/dagster/Dockerfile exists
   metabase:
     image: metabase/metabase
     ports:
       - "3001:3000"
     depends_on:
       - postgres
-
 volumes:
   postgres_data:
-
 # NOTE: this is a starting skeleton for Sprint 0.
 # P1 (ingestion/infra) owns filling in the Dagster build context,
-# env vars, and any additional services in later sprints.
+# env vars, and any additional services (e.g. a model-serving container in Sprint 6).
