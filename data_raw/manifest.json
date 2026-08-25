@@ -2,7 +2,7 @@
   "2024/75": {
     "checksum_sha256": "e909ea2eb803ae4b1260c991879e40b273764a8582edb47fb1b70202c36cbc55",
     "department": "75",
-    "ingested_at": "2026-08-25T10:36:03.440125+00:00",
+    "ingested_at": "2026-08-25T11:04:45.592021+00:00",
     "path": "data_raw\\2024\\75.csv.gz",
     "size_bytes": 1819428,
     "status": "success",
