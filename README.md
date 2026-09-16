@@ -85,3 +85,9 @@ where the predictive-model workstream plugs into the pipeline each sprint.
 Bronze ingestion is covered by an automated test suite using **pytest**.
 
 Run the complete suite:
+python -m pytest tests/ -v
+
+Tests are isolated with `tmp_path`/`monkeypatch` fixtures and a fake S3
+client (`tests/ingestion/fake_s3.py`) — no live MinIO connection or network
+access is required to run them, and no real DVF archives are committed to
+the repository.
