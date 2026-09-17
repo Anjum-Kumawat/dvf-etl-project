@@ -1,5 +1,6 @@
-"""RETL0-40 through RETL0-45 entrypoint: Bronze (MinIO/S3A) -> typed,
-deduplicated, BAN/DPE/Filosofi/geo-enriched Silver DVF -> PostgreSQL.
+"""RETL0-40 through RETL0-45, RETL0-11 entrypoint: Bronze (MinIO/S3A) ->
+typed, deduplicated, BAN/DPE/Filosofi/geo-enriched, quality-checked Silver
+DVF -> PostgreSQL.
 
 Usage:
     python -m src.silver.run_dvf_silver --year 2024 --dept 75 --publication 2026-04 --dpe-extraction-date 2026-09-17 --geo-extraction-date 2026-09-17
@@ -13,6 +14,7 @@ from src.silver.dvf_dedup import deduplicate_dvf
 from src.silver.dvf_dpe_join import join_dpe, read_dpe_silver
 from src.silver.dvf_filosofi_join import join_filosofi, read_filosofi_silver
 from src.silver.dvf_geo_join import join_geo, read_geo_silver
+from src.silver.dvf_quality_checks import QualityCheckFailure, run_quality_checks
 from src.silver.dvf_schema import DVF_BRONZE_SCHEMA
 from src.silver.dvf_transform import cast_dvf_core_fields
 
@@ -95,6 +97,12 @@ def main():
         f"({geo_matched_count} matched administrative reference data, "
         f"{enriched_count - geo_matched_count} had none)"
     )
+
+    try:
+        run_quality_checks(enriched, args.year, args.dept)
+    except QualityCheckFailure as exc:
+        print(f"ERROR: quality checks failed, aborting before write: {exc}")
+        raise SystemExit(1)
 
     jdbc_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
     (
