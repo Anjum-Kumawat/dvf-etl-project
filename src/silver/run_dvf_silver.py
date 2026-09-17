@@ -1,12 +1,14 @@
-"""RETL0-40 entrypoint: Bronze (MinIO/S3A) -> typed Silver DVF -> PostgreSQL.
+"""RETL0-40 / RETL0-41 entrypoint: Bronze (MinIO/S3A) -> typed, deduplicated
+Silver DVF -> PostgreSQL.
 
 Usage:
-    python src/silver/run_dvf_silver.py --year 2024 --dept 75 --publication 2026-04
+    python -m src.silver.run_dvf_silver --year 2024 --dept 75 --publication 2026-04
 """
 import argparse
 import os
 
 from src.common.spark_session import get_spark_session
+from src.silver.dvf_dedup import deduplicate_dvf
 from src.silver.dvf_schema import DVF_BRONZE_SCHEMA
 from src.silver.dvf_transform import cast_dvf_core_fields
 
@@ -37,10 +39,18 @@ def main():
     )
 
     typed = cast_dvf_core_fields(raw)
+    typed_count = typed.count()
+
+    deduped = deduplicate_dvf(typed)
+    deduped_count = deduped.count()
+    print(
+        f"Typed rows: {typed_count}, after dedup: {deduped_count} "
+        f"({typed_count - deduped_count} exact duplicate rows removed)"
+    )
 
     jdbc_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
     (
-        typed.write.format("jdbc")
+        deduped.write.format("jdbc")
         .option("url", jdbc_url)
         .option("dbtable", "silver_dvf")
         .option("user", POSTGRES_USER)
@@ -50,10 +60,9 @@ def main():
         .save()
     )
 
-    print(f"Wrote {typed.count()} typed rows to PostgreSQL table silver_dvf")
+    print(f"Wrote {deduped_count} typed, deduplicated rows to PostgreSQL table silver_dvf")
     spark.stop()
 
 
 if __name__ == "__main__":
     main()
-    
