@@ -1,6 +1,6 @@
-"""RETL0-40 / RETL0-41 / RETL0-42 / RETL0-43 entrypoint:
-Bronze (MinIO/S3A) -> typed, deduplicated, BAN- and DPE-enriched Silver DVF
--> PostgreSQL.
+"""RETL0-40 / RETL0-41 / RETL0-42 / RETL0-43 / RETL0-44 entrypoint:
+Bronze (MinIO/S3A) -> typed, deduplicated, BAN/DPE/Filosofi-enriched Silver
+DVF -> PostgreSQL.
 
 Usage:
     python -m src.silver.run_dvf_silver --year 2024 --dept 75 --publication 2026-04 --dpe-extraction-date 2026-09-17
@@ -12,6 +12,7 @@ from src.common.spark_session import get_spark_session
 from src.silver.dvf_ban_join import join_ban, read_ban_silver
 from src.silver.dvf_dedup import deduplicate_dvf
 from src.silver.dvf_dpe_join import join_dpe, read_dpe_silver
+from src.silver.dvf_filosofi_join import join_filosofi, read_filosofi_silver
 from src.silver.dvf_schema import DVF_BRONZE_SCHEMA
 from src.silver.dvf_transform import cast_dvf_core_fields
 
@@ -63,13 +64,23 @@ def main():
     )
 
     dpe = read_dpe_silver(spark, args.dpe_extraction_date, args.dept)
-    enriched = join_dpe(ban_enriched, dpe)
-    enriched_count = enriched.count()
-    dpe_matched_count = enriched.filter(enriched["dpe_etiquette_dpe"].isNotNull()).count()
+    dpe_enriched = join_dpe(ban_enriched, dpe)
+    dpe_enriched_count = dpe_enriched.count()
+    dpe_matched_count = dpe_enriched.filter(dpe_enriched["dpe_etiquette_dpe"].isNotNull()).count()
     print(
-        f"DPE join: {enriched_count} rows after join "
+        f"DPE join: {dpe_enriched_count} rows after join "
         f"({dpe_matched_count} matched a DPE energy diagnostic, "
-        f"{enriched_count - dpe_matched_count} had none)"
+        f"{dpe_enriched_count - dpe_matched_count} had none)"
+    )
+
+    filosofi = read_filosofi_silver(spark, args.dept)
+    enriched = join_filosofi(dpe_enriched, filosofi)
+    enriched_count = enriched.count()
+    filosofi_matched_count = enriched.filter(enriched["filosofi_revenu_median"].isNotNull()).count()
+    print(
+        f"Filosofi join: {enriched_count} rows after join "
+        f"({filosofi_matched_count} matched commune income data, "
+        f"{enriched_count - filosofi_matched_count} had none)"
     )
 
     jdbc_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
