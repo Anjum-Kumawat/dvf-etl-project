@@ -1,9 +1,8 @@
-"""RETL0-40 / RETL0-41 / RETL0-42 / RETL0-43 / RETL0-44 entrypoint:
-Bronze (MinIO/S3A) -> typed, deduplicated, BAN/DPE/Filosofi-enriched Silver
-DVF -> PostgreSQL.
+"""RETL0-40 through RETL0-45 entrypoint: Bronze (MinIO/S3A) -> typed,
+deduplicated, BAN/DPE/Filosofi/geo-enriched Silver DVF -> PostgreSQL.
 
 Usage:
-    python -m src.silver.run_dvf_silver --year 2024 --dept 75 --publication 2026-04 --dpe-extraction-date 2026-09-17
+    python -m src.silver.run_dvf_silver --year 2024 --dept 75 --publication 2026-04 --dpe-extraction-date 2026-09-17 --geo-extraction-date 2026-09-17
 """
 import argparse
 import os
@@ -13,6 +12,7 @@ from src.silver.dvf_ban_join import join_ban, read_ban_silver
 from src.silver.dvf_dedup import deduplicate_dvf
 from src.silver.dvf_dpe_join import join_dpe, read_dpe_silver
 from src.silver.dvf_filosofi_join import join_filosofi, read_filosofi_silver
+from src.silver.dvf_geo_join import join_geo, read_geo_silver
 from src.silver.dvf_schema import DVF_BRONZE_SCHEMA
 from src.silver.dvf_transform import cast_dvf_core_fields
 
@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--dept", type=str, required=True)
     parser.add_argument("--publication", type=str, required=True)
     parser.add_argument("--dpe-extraction-date", type=str, required=True)
+    parser.add_argument("--geo-extraction-date", type=str, required=True)
     args = parser.parse_args()
 
     spark = get_spark_session("silver-dvf-schema-typing")
@@ -74,13 +75,25 @@ def main():
     )
 
     filosofi = read_filosofi_silver(spark, args.dept)
-    enriched = join_filosofi(dpe_enriched, filosofi)
-    enriched_count = enriched.count()
-    filosofi_matched_count = enriched.filter(enriched["filosofi_revenu_median"].isNotNull()).count()
+    filosofi_enriched = join_filosofi(dpe_enriched, filosofi)
+    filosofi_enriched_count = filosofi_enriched.count()
+    filosofi_matched_count = filosofi_enriched.filter(
+        filosofi_enriched["filosofi_revenu_median"].isNotNull()
+    ).count()
     print(
-        f"Filosofi join: {enriched_count} rows after join "
+        f"Filosofi join: {filosofi_enriched_count} rows after join "
         f"({filosofi_matched_count} matched commune income data, "
-        f"{enriched_count - filosofi_matched_count} had none)"
+        f"{filosofi_enriched_count - filosofi_matched_count} had none)"
+    )
+
+    geo = read_geo_silver(spark, args.geo_extraction_date, args.dept)
+    enriched = join_geo(filosofi_enriched, geo)
+    enriched_count = enriched.count()
+    geo_matched_count = enriched.filter(enriched["geo_commune_nom"].isNotNull()).count()
+    print(
+        f"Geo join: {enriched_count} rows after join "
+        f"({geo_matched_count} matched administrative reference data, "
+        f"{enriched_count - geo_matched_count} had none)"
     )
 
     jdbc_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
