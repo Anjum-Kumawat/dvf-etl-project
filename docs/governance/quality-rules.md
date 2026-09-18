@@ -1,6 +1,6 @@
 # Silver DVF Quality Rules
 
-**Ticket:** RETL0-93 · **Owner:** Anjum Kumawat (Data Engineering) · **Scope:** dept 75 (original pilot) + dept 92 + dept 93 (RETL0-49 multi-department validation), 2024 publication
+**Ticket:** RETL0-93 · **Owner:** Anjum Kumawat (Data Engineering) · **Scope:** dept 75, 92, 93, 94 (RETL0-49 multi-department validation, all four departments this project covers), 2024 publication
 
 ## Purpose
 
@@ -50,9 +50,11 @@ contained. Verified against DVF's own published documentation
 DVF category (in an expropriation, the recorded price is the
 compensation/indemnity, not a market sale price). The known-category set
 was incomplete, not the rule itself -- `Expropriation` has been added to
-it. **HARD FAIL** remains appropriate: DGFiP's full category set is
-closed and documented, so a genuinely unknown value should still stop the
-pipeline for review.
+it. Department 94 measured 0 violations against the expanded set,
+consistent with the category list now being complete for the departments
+this project covers. **HARD FAIL** remains appropriate: DGFiP's full
+category set is closed and documented, so a genuinely unknown value should
+still stop the pipeline for review.
 
 ### 2.2 type_local must be a known category or null
 Observed in department 75: `Appartement` (31,591), `Dépendance` (30,215),
@@ -75,8 +77,9 @@ pipeline): this is real, correctly-recorded data. Specific streets right
 on the Paris border have historically been assigned a Paris postal code by
 La Poste even though the commune itself is unambiguously in Hauts-de-Seine
 -- a documented postal-routing quirk, not a department-filter bug.
-Department 93 had 0 violations, consistent with this being a Paris-border
-phenomenon rather than a general one.
+Departments 93 and 94 both had 0 violations, consistent with this being a
+Paris-border phenomenon specific to Hauts-de-Seine communes bordering
+Paris, not a general one.
 
 Downgraded to **WARNING**: flag for review, do not abort the pipeline.
 Department 75 never surfaced this because Paris (a single commune split
@@ -105,10 +108,12 @@ commune déléguée effective 2025-01-01. DVF's 2024 data predates the
 merger and still uses 93059; geo.api.gouv.fr reflects current boundaries
 and only knows 93066. Fixed in `src/silver/dvf_geo_join.py` by extending
 the same parent-commune mapping already used for the Paris/Lyon/Marseille
-arrondissement case to also cover 93059 -> 93066. This is a known,
-open-ended limitation, not an exhaustively-audited one: any future commune
-merger affecting a department this project processes would need the same
-real-data investigation before its mapping is added.
+arrondissement case to also cover 93059 -> 93066. Department 94 measured
+100% geo coverage with no new gaps, confirming this was the only such
+mapping needed for the departments this project covers. This remains a
+known, open-ended limitation, not an exhaustively-audited one: any future
+commune merger affecting a department this project processes would need
+the same real-data investigation before its mapping is added.
 
 ## 3. Range / outlier detection
 
@@ -162,25 +167,34 @@ Silver rows.
 
 ## 5. Join / enrichment coverage -- BAN/DPE downgraded to WARNING (RETL0-49)
 
-Real measurements across three departments:
+Real measurements across all four departments this project covers:
 
-| Source    | dept 75 | dept 92 | dept 93 | Severity | Rationale |
-|-----------|---------|---------|---------|----------|-----------|
-| BAN       | 99.8% (66,934/67,072) | 93.9% (48,660/51,795) | 89.1% (32,399/36,353) | **WARNING** | Coverage kept dropping with each new real department, spread continuously across dozens of communes each time (dept 93: 53.9% to 100% across ~40 communes) rather than concentrated in a few -- real regional variance in how completely an area has been BAN-geocoded, not a pipeline defect. No fixed HARD FAIL floor has ever actually caught a real bug here; every violation investigated so far was legitimate. Downgraded so coverage is still visible in every run's report without blocking the pipeline. |
-| DPE       | 94.9% (63,668/67,072) | 75.5% (39,099/51,795) | 62.6% (22,741/36,353) | **WARNING** | Same reasoning as BAN. Department 93's per-commune breakdown ranged continuously from 29.0% to 90.8% across all ~39 communes -- genuine regional variance in DPE survey completeness, not concentrated in a way that would suggest a bug. |
-| Filosofi  | 100% (67,072/67,072)  | 100% (51,795/51,795) | 100% (36,353/36,353) | **HARD FAIL** | Held at 100% across all three real departments; any drop indicates a broken commune-code filter or a missing vintage, not normal variance. |
-| geo       | 100% (67,072/67,072)  | 100% (51,795/51,795) | 100% expected after the 93059->93066 mapping fix (see 2.5) | **HARD FAIL** | Held at 100% for depts 75 and 92; department 93's one real gap was a genuine, now-fixed commune-merger mapping gap (2.5), not normal variance -- a drop after that fix still indicates a real defect. |
+| Source    | dept 75 | dept 92 | dept 93 | dept 94 | Severity | Rationale |
+|-----------|---------|---------|---------|---------|----------|-----------|
+| BAN       | 99.8% (66,934/67,072) | 93.9% (48,660/51,795) | 89.1% (32,399/36,353) | 92.9% (36,881/39,691) | **WARNING** | Coverage varies by department, spread continuously across dozens of communes each time (not concentrated in a few) -- real regional variance in how completely an area has been BAN-geocoded, not a pipeline defect. Department 94's rate sits between departments 92 and 93, consistent with normal variance rather than a continuing decline. No fixed HARD FAIL floor has ever actually caught a real bug here. |
+| DPE       | 94.9% (63,668/67,072) | 75.5% (39,099/51,795) | 62.6% (22,741/36,353) | 68.8% (27,297/39,691) | **WARNING** | Same reasoning as BAN. Department 94's rate is close to department 93's, both meaningfully below departments 75/92 -- genuine regional variance in DPE survey completeness across Île-de-France, not concentrated in a way that would suggest a bug. |
+| Filosofi  | 100% (67,072/67,072)  | 100% (51,795/51,795) | 100% (36,353/36,353) | 100% (39,691/39,691) | **HARD FAIL** | Held at 100% across all four real departments; any drop indicates a broken commune-code filter or a missing vintage, not normal variance. |
+| geo       | 100% (67,072/67,072)  | 100% (51,795/51,795) | 100% (36,353/36,353, after the 93059->93066 mapping fix; see 2.5) | 100% (39,691/39,691) | **HARD FAIL** | Held at 100% across all four real departments once the one genuine commune-merger mapping gap (2.5) was fixed -- a drop now still indicates a real defect. |
 
 ## RETL0-49 Addendum: multi-department validation
 
-Department 94 has not yet been run through Silver. If a future run
-reveals a violation for a legitimate reason (not a pipeline defect) --
-investigate the same way this addendum did three times now (a targeted
-diagnostic against real data, checking whether violations are concentrated
-in a way that suggests a bug or spread in a way that suggests real
-variance, never an assumption) before touching a rule again. Severities
-and floors above should only move based on real measurements, in either
-direction.
+All four departments this project covers (75, 92, 93, 94) have now been
+run through Silver and coexist in `silver_dvf` (194,911 total rows,
+verified via `psql ... GROUP BY code_departement`), with three genuine
+real-data findings investigated and fixed along the way: the
+Boulogne-Billancourt/Issy-les-Moulineaux Paris-postal-code quirk (2.3),
+the Pierrefitte-sur-Seine/Saint-Denis commune merger (2.5), and the
+`Expropriation` category gap (2.1). BAN/DPE coverage varying by department
+turned out to be real, unavoidable regional variance rather than a defect,
+which is why both are WARNING rather than a fixed floor.
+
+If this project is ever extended to a department outside this set (or a
+later publication year), any new rule violation should be investigated
+the same way this addendum did four times now -- a targeted diagnostic
+against real data, checking whether violations are concentrated in a way
+that suggests a bug or spread in a way that suggests real variance, never
+an assumption -- before touching a rule again. Severities and floors above
+should only move based on real measurements, in either direction.
 
 ## Out of scope for this MVP
 
