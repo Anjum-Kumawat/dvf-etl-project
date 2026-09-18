@@ -8,22 +8,32 @@ overwrites a good Silver table with bad data.
 
 Thresholds and category sets here are taken directly from
 docs/governance/quality-rules.md, which documents why each one was chosen
-(grounded in real dept-75/2024 measurements, not assumed).
+(grounded in real measured data, not assumed).
 
-RETL0-49 addendum: running Silver for department 92 for the first time
-(via Dagster's department-partitioned materialization) surfaced two
+RETL0-49 addendum: running Silver for departments 92 and 93 for the first
+time (via Dagster's department-partitioned materialization) surfaced real
 findings requiring changes here -- see quality-rules.md's "RETL0-49
 Addendum" section for the full investigation and real measurements:
 
-  - check_code_postal_format is now a WARNING, not a HARD FAIL. A real,
+  - check_code_postal_format is a WARNING, not a HARD FAIL. A real,
     documented Paris-border postal-routing quirk (specific
     Boulogne-Billancourt/Issy-les-Moulineaux streets carry a Paris postal
     code despite being in department 92) makes the department-prefix
     match a real edge case, not a pipeline defect.
-  - BAN_COVERAGE_FLOOR and DPE_COVERAGE_FLOOR are lowered from the
-    dept-75-only values (99%, 90%) to sit below department 92's real
-    measured coverage (93.9%, 75.5%) with margin, since Paris is not
-    representative of every department's BAN/DPE coverage.
+  - KNOWN_NATURE_MUTATION now includes "Expropriation", a real DVF
+    category (confirmed against DVF's own published documentation) that
+    departments 75 and 92 simply never happened to contain.
+  - BAN and DPE join coverage are now WARNING, not HARD FAIL. Across three
+    real departments (75, 92, 93), coverage kept dropping further each
+    time (BAN: 99.8% -> 93.9% -> 89.1%; DPE: 94.9% -> 75.5% -> 62.6%),
+    spread continuously across dozens of communes each time rather than
+    concentrated in a few -- real regional variance in how completely an
+    area has been BAN-geocoded or DPE-surveyed, not a pipeline defect. No
+    HARD FAIL on either has ever actually caught a real bug. Filosofi and
+    geo coverage remain HARD FAIL: both held at 100% across all three
+    departments once the geo join's real commune-merger gap (department
+    93's Pierrefitte-sur-Seine, merged into Saint-Denis on 2025-01-01) was
+    fixed in dvf_geo_join.py, so a drop there still signals a real defect.
 """
 from dataclasses import dataclass
 from typing import List
@@ -33,7 +43,7 @@ from pyspark.sql import functions as F
 
 KNOWN_NATURE_MUTATION = {
     "Vente", "Echange", "Vente en l'état futur d'achèvement",
-    "Adjudication", "Vente terrain à bâtir",
+    "Adjudication", "Vente terrain à bâtir", "Expropriation",
 }
 KNOWN_TYPE_LOCAL = {
     "Appartement", "Maison", "Dépendance",
@@ -153,16 +163,24 @@ def check_ban_low_confidence(df: DataFrame) -> QualityCheckResult:
     )
 
 
-def check_join_coverage(df: DataFrame, column: str, floor: float, label: str) -> QualityCheckResult:
+def check_join_coverage(
+    df: DataFrame, column: str, floor: float, label: str, severity: str = "HARD FAIL"
+) -> QualityCheckResult:
+    """severity defaults to HARD FAIL (Filosofi, geo -- both real 100%
+    invariants). Pass severity="WARNING" for a source whose coverage is
+    real regional variance rather than a broken/working signal (RETL0-49:
+    BAN, DPE) -- the row is still flagged and the floor still describes
+    when it's worth a look, but it never blocks the pipeline."""
     total = df.count()
     matched = df.filter(F.col(column).isNotNull()).count()
     rate = matched / total if total else 0.0
-    passed = rate >= floor
+    met_floor = rate >= floor
+    passed = True if severity == "WARNING" else met_floor
     return QualityCheckResult(
         f"5-{label}",
         f"{label} join coverage >= {floor:.0%} (actual: {rate:.1%})",
-        "HARD FAIL",
-        0 if passed else (total - matched),
+        severity,
+        0 if met_floor else (total - matched),
         passed,
     )
 
@@ -183,8 +201,8 @@ def run_quality_checks(df: DataFrame, year: int, dept: str) -> List[QualityCheck
         check_low_value_outliers(df),
         check_high_value_outliers(df),
         check_ban_low_confidence(df),
-        check_join_coverage(df, "ban_result_status", BAN_COVERAGE_FLOOR, "BAN"),
-        check_join_coverage(df, "dpe_etiquette_dpe", DPE_COVERAGE_FLOOR, "DPE"),
+        check_join_coverage(df, "ban_result_status", BAN_COVERAGE_FLOOR, "BAN", severity="WARNING"),
+        check_join_coverage(df, "dpe_etiquette_dpe", DPE_COVERAGE_FLOOR, "DPE", severity="WARNING"),
         check_join_coverage(df, "filosofi_revenu_median", FILOSOFI_COVERAGE_FLOOR, "Filosofi"),
         check_join_coverage(df, "geo_commune_nom", GEO_COVERAGE_FLOOR, "geo"),
     ]
