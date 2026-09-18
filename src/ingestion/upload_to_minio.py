@@ -18,12 +18,14 @@ from paths import local_path, object_key
 BUCKET = "bronze"
 
 
+import os
+
 def get_client():
     return boto3.client(
         "s3",
-        endpoint_url="http://localhost:9000",
-        aws_access_key_id="minioadmin",
-        aws_secret_access_key="minioadmin",
+        endpoint_url=os.environ.get("MINIO_ENDPOINT", "http://localhost:9000"),
+        aws_access_key_id=os.environ.get("MINIO_ACCESS_KEY", "minioadmin"),
+        aws_secret_access_key=os.environ.get("MINIO_SECRET_KEY", "minioadmin"),
     )
 
 
