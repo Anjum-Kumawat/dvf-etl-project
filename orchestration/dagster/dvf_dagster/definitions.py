@@ -4,6 +4,8 @@ from .assets import (
     ban_bronze,
     dpe_bronze,
     dvf_bronze,
+    dvf_pipeline_job,
+    dvf_publication_schedule,
     filosofi_bronze,
     geo_bronze,
     gold_price_aggregates,
@@ -19,5 +21,7 @@ defs = Definitions(
         geo_bronze,
         silver_dvf,
         gold_price_aggregates,
-    ]
+    ],
+    jobs=[dvf_pipeline_job],
+    schedules=[dvf_publication_schedule],
 )

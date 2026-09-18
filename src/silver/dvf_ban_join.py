@@ -14,8 +14,20 @@ flowing through Silver with NULL ban_* columns rather than being dropped.
 Both DVF and BAN carry an independent longitude/latitude (DVF's own export
 vs BAN's own geocoding of the same address) -- both are kept, prefixed, as
 a deliberate data-quality cross-check rather than picking one arbitrarily.
+
+RETL0-49 addendum: numeric fields below are cast via try_cast (raised as an
+F.expr, since pyspark.sql.functions has no try_cast wrapper in this Spark
+version) rather than plain .cast(...). Under PySpark 4.1.1's ANSI SQL mode
+default, a plain .cast() raises CAST_INVALID_INPUT on any blank or
+malformed value instead of returning NULL -- exactly the failure mode found
+and fixed in src/silver/dvf_filosofi_join.py for a different source. BAN's
+CSV columns are all read as StringType (see BAN_BRONZE_SCHEMA), so a row
+with a missing house number, an unmatched geocode, or a blank coordinate
+would hit the same crash. Applied here preventively, by the same causal
+reasoning -- not because this specific crash has been observed yet.
 """
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
 from pyspark.sql.types import StructField, StructType, StringType
 
 BAN_BRONZE_COLUMNS = [
@@ -38,6 +50,10 @@ def ban_bronze_path(publication: str, year: int, dept: str) -> str:
     return f"s3a://bronze/ban/publication={publication}/year={year}/department={dept}/{dept}.csv"
 
 
+def _try_cast(col_name: str, to_type: str):
+    return F.expr(f"try_cast(`{col_name}` as {to_type})")
+
+
 def read_ban_silver(spark: SparkSession, publication: str, year: int, dept: str) -> DataFrame:
     """Read raw BAN Bronze CSV and cast/rename to the columns Silver needs."""
     raw = (
@@ -47,13 +63,13 @@ def read_ban_silver(spark: SparkSession, publication: str, year: int, dept: str)
     )
 
     return raw.select(
-        raw["adresse_numero"].cast("int").alias("adresse_numero"),
+        _try_cast("adresse_numero", "int").alias("adresse_numero"),
         raw["adresse_nom_voie"].alias("adresse_nom_voie"),
         raw["code_postal"].alias("code_postal"),
         raw["code_commune"].alias("code_commune"),
-        raw["longitude"].cast("double").alias("ban_longitude"),
-        raw["latitude"].cast("double").alias("ban_latitude"),
-        raw["result_score"].cast("double").alias("ban_result_score"),
+        _try_cast("longitude", "double").alias("ban_longitude"),
+        _try_cast("latitude", "double").alias("ban_latitude"),
+        _try_cast("result_score", "double").alias("ban_result_score"),
         raw["result_label"].alias("ban_result_label"),
         raw["result_id"].alias("ban_result_id"),
         raw["result_housenumber"].alias("ban_result_housenumber"),

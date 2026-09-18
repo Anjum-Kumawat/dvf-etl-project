@@ -15,10 +15,25 @@ Typing decisions (mirrored in the Silver data dictionary, RETL0-94):
   - numero_disposition, adresse_numero, nombre_lots,
     nombre_pieces_principales: INT.
   - date_mutation: DATE (source is already YYYY-MM-DD).
+
+RETL0-49 addendum: numeric/date fields are cast via try_cast (raised as an
+F.expr, since pyspark.sql.functions has no try_cast wrapper in this Spark
+version) rather than plain .cast(...). Blank strings are already normalized
+to NULL below before any cast runs, and a NULL always casts to NULL safely
+regardless of Spark's ANSI mode -- that part of this module was already
+correct. The residual gap is a genuinely malformed NON-blank value: under
+PySpark 4.1.1's ANSI SQL mode default, a plain .cast() on a malformed
+non-null string raises CAST_INVALID_INPUT instead of returning NULL, which
+is exactly the failure mode found and fixed in src/silver/dvf_filosofi_join.py
+for a different source. DVF is a large, real government export that has
+already shown at least one undocumented quirk (the exact full-row
+duplicates found in RETL0-41), so hardened here for consistency with the
+rest of the Silver layer -- not because this specific crash has been
+observed in DVF's own core fields.
 """
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.types import DateType, DoubleType, IntegerType, StringType
+from pyspark.sql.types import StringType
 
 STRING_FIELDS = [
     "id_mutation", "nature_mutation", "adresse_suffixe", "adresse_nom_voie",
@@ -43,9 +58,14 @@ DOUBLE_FIELDS = [
 ]
 
 
-def _normalize_decimal(col_name: str):
-    """Replace a comma decimal separator with a dot before casting to double."""
-    return F.regexp_replace(F.col(col_name), ",", ".")
+def _try_cast_col(col_name: str, to_type: str):
+    return F.expr(f"try_cast(`{col_name}` as {to_type})")
+
+
+def _normalize_and_try_cast_double(col_name: str):
+    """Replace a comma decimal separator with a dot, then try_cast to
+    double -- see module docstring's RETL0-49 addendum."""
+    return F.expr(f"try_cast(regexp_replace(`{col_name}`, ',', '.') as double)")
 
 
 def cast_dvf_core_fields(df: DataFrame) -> DataFrame:
@@ -62,13 +82,13 @@ def cast_dvf_core_fields(df: DataFrame) -> DataFrame:
             name, F.when(F.trim(F.col(name)) == "", None).otherwise(F.col(name))
         )
 
-    out = out.withColumn("date_mutation", F.col("date_mutation").cast(DateType()))
+    out = out.withColumn("date_mutation", _try_cast_col("date_mutation", "date"))
 
     for name in INT_FIELDS:
-        out = out.withColumn(name, F.col(name).cast(IntegerType()))
+        out = out.withColumn(name, _try_cast_col(name, "int"))
 
     for name in DOUBLE_FIELDS:
-        out = out.withColumn(name, _normalize_decimal(name).cast(DoubleType()))
+        out = out.withColumn(name, _normalize_and_try_cast_double(name))
 
     for name in STRING_FIELDS:
         out = out.withColumn(name, F.col(name).cast(StringType()))

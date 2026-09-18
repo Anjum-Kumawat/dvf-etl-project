@@ -25,11 +25,23 @@ on a machine that has never run the ingestion script's local unzip step.
 Filtering to the pilot department happens here, in Silver.
 
 INSEE suppresses (with the literal string "s") any indicator computed from
-too small a population to publish reliably (statistical secrecy). Casting
-"s" to a numeric type yields NULL, which is correct -- a suppressed cell is
-genuinely unknown, not zero. This doesn't affect the (large-population)
-Paris arrondissements for our selected columns, but is a real characteristic
-of the source worth documenting, not a bug.
+too small a population to publish reliably (statistical secrecy). A
+suppressed cell is genuinely unknown, not zero, so it must become NULL, not
+crash the pipeline.
+
+CORRECTION (RETL0-49, found via a real department-92 partition run): this
+module originally cast with plain `.cast(...)`, on the assumption that
+casting "s" to a numeric type silently yields NULL. That assumption does
+not hold under PySpark 4.1.1 (this project's pinned version), which
+defaults to ANSI SQL mode -- an invalid cast under ANSI mode raises
+CAST_INVALID_INPUT instead of returning NULL. Department 75 (Paris) never
+triggered this, because its rows happen to have no suppressed values in
+the selected columns, exactly as originally predicted -- but department 92
+does, and failed pipeline execution rather than producing a NULL. Fixed by
+using try_cast (via F.expr, since pyspark.sql.functions has no try_cast
+wrapper in this Spark version), which explicitly returns NULL on a
+malformed cast regardless of ANSI mode, restoring the originally-intended
+behavior.
 """
 import tempfile
 import zipfile
@@ -86,12 +98,20 @@ def read_filosofi_silver(spark: SparkSession, dept: str) -> DataFrame:
         raw = spark.read.option("header", True).option("sep", ";").csv(str(csv_path))
 
         def _num(col_name):
-            return F.regexp_replace(F.col(col_name), ",", ".").cast("double")
+            # try_cast (not plain cast) -- INSEE's "s" secrecy-suppression
+            # marker must become NULL, not raise, under ANSI mode. See
+            # module docstring. pyspark.sql.functions has no try_cast
+            # wrapper in this version, so it's called via F.expr as a raw
+            # SQL expression instead.
+            return F.expr(f"try_cast(regexp_replace(`{col_name}`, ',', '.') as double)")
+
+        def _int(col_name):
+            return F.expr(f"try_cast(`{col_name}` as int)")
 
         selected = raw.select(
             raw["CODGEO"].alias("code_commune"),
-            raw["NBMEN21"].cast("int").alias("filosofi_nb_menages"),
-            raw["NBPERS21"].cast("int").alias("filosofi_nb_personnes"),
+            _int("NBMEN21").alias("filosofi_nb_menages"),
+            _int("NBPERS21").alias("filosofi_nb_personnes"),
             _num("Q221").alias("filosofi_revenu_median"),
             _num("GI21").alias("filosofi_gini_index"),
             _num("S80S2021").alias("filosofi_s80_s20_ratio"),
