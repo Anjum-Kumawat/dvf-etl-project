@@ -65,6 +65,16 @@ def test_nature_mutation_known_fails_on_unknown_category(spark):
     assert result.violation_count == 1
 
 
+def test_nature_mutation_known_accepts_expropriation(spark):
+    # RETL0-49: department 93's first real run had 156 real "Expropriation"
+    # rows -- a genuine DVF category (confirmed against DVF's own published
+    # documentation) that departments 75 and 92 simply never contained.
+    df = spark.createDataFrame([_good_row(nature_mutation="Expropriation")])
+    result = check_nature_mutation_known(df)
+    assert result.passed
+    assert result.violation_count == 0
+
+
 def test_type_local_known_allows_null(spark):
     # Two rows so Spark can infer type_local's type from the non-null row --
     # a single row with only None has nothing to infer a type from.
@@ -166,6 +176,22 @@ def test_join_coverage_fails_below_floor(spark):
     ])
     result = check_join_coverage(df, "ban_result_status", 0.99, "BAN")
     assert not result.passed
+
+
+def test_join_coverage_warning_severity_never_fails(spark):
+    # RETL0-49: BAN and DPE coverage are now called with severity="WARNING"
+    # in run_quality_checks -- across three real departments, coverage
+    # dropping below a fixed floor turned out to be real regional variance,
+    # never a pipeline defect. The violation must still be counted (for the
+    # printed report) even though passed is always True.
+    df = spark.createDataFrame([
+        _good_row(ban_result_status="ok"),
+        _good_row(ban_result_status=None),
+    ])
+    result = check_join_coverage(df, "ban_result_status", 0.99, "BAN", severity="WARNING")
+    assert result.passed
+    assert result.violation_count == 1
+    assert result.severity == "WARNING"
 
 
 def test_run_quality_checks_passes_on_clean_data(spark):
