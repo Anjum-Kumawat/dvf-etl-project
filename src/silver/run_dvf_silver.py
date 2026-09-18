@@ -8,6 +8,8 @@ Usage:
 import argparse
 import os
 
+import psycopg2
+
 from src.common.spark_session import get_spark_session
 from src.silver.dvf_ban_join import join_ban, read_ban_silver
 from src.silver.dvf_dedup import deduplicate_dvf
@@ -105,6 +107,33 @@ def main():
         raise SystemExit(1)
 
     jdbc_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+
+    # Partition-safe write: delete only this department's existing rows,
+    # then append this run's rows. A plain overwrite would wipe every other
+    # department's data each time Dagster materializes one department
+    # partition at a time -- see
+    # docs/ingestion/incremental-ingestion-strategy.md. Uses psycopg2
+    # directly (already a dependency inside the Dagster container, and
+    # added to requirements.txt for local runs) rather than trying to reuse
+    # Spark's own JVM/JDBC classloader, which does not expose the
+    # postgresql driver to plain java.sql.DriverManager calls made through
+    # py4j even though Spark's own JDBC writer can see it fine internally.
+    conn = psycopg2.connect(
+        host=POSTGRES_HOST, port=POSTGRES_PORT, dbname=POSTGRES_DB,
+        user=POSTGRES_USER, password=POSTGRES_PASSWORD,
+    )
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM silver_dvf WHERE code_departement = %s", (args.dept,))
+                conn.commit()
+            except psycopg2.errors.UndefinedTable:
+                # First-ever run: table doesn't exist yet. mode("append")
+                # below creates it, so there is nothing to delete.
+                conn.rollback()
+    finally:
+        conn.close()
+
     (
         enriched.write.format("jdbc")
         .option("url", jdbc_url)
@@ -112,7 +141,7 @@ def main():
         .option("user", POSTGRES_USER)
         .option("password", POSTGRES_PASSWORD)
         .option("driver", "org.postgresql.Driver")
-        .mode("overwrite")
+        .mode("append")
         .save()
     )
 

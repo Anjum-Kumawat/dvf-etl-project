@@ -23,6 +23,19 @@ that single "building-representative" record onto every DVF row at that
 address. Read it as "the latest known energy profile for this building,"
 not as certified for the specific unit sold. Recorded in the Silver data
 dictionary (RETL0-94) and called out in the final report.
+
+RETL0-49 addendum: date_etablissement_dpe is cast via try_cast (raised as
+an F.expr, since pyspark.sql.functions has no try_cast wrapper in this
+Spark version) rather than plain .cast("date"). Under PySpark 4.1.1's ANSI
+SQL mode default, a plain .cast() raises CAST_INVALID_INPUT on any blank or
+malformed value instead of returning NULL -- the same failure mode found
+and fixed in src/silver/dvf_filosofi_join.py for a different source.
+Applied here preventively, by the same causal reasoning -- not because this
+specific crash has been observed yet. surface_habitable_logement is not
+changed: it is declared DoubleType directly in DPE_BRONZE_SCHEMA and parsed
+by Spark's JSON reader (PERMISSIVE mode nulls unparseable values rather
+than raising), a different, already-safe code path from the explicit
+StringType-then-.cast() pattern this addendum addresses.
 """
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
@@ -83,7 +96,7 @@ def read_dpe_silver(spark: SparkSession, extraction_date: str, dept: str) -> Dat
         raw["surface_habitable_logement"].alias("dpe_surface_habitable_logement"),
         raw["type_batiment"].alias("dpe_type_batiment"),
         raw["periode_construction"].alias("dpe_periode_construction"),
-        raw["date_etablissement_dpe"].cast("date").alias("dpe_date_etablissement_dpe"),
+        F.expr("try_cast(`date_etablissement_dpe` as date)").alias("dpe_date_etablissement_dpe"),
     )
 
     return most_recent_per_address(typed)

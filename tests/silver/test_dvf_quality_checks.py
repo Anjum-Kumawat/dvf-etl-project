@@ -85,10 +85,18 @@ def test_code_postal_format_passes_on_valid_code(spark):
     assert result.passed
 
 
-def test_code_postal_format_fails_on_wrong_department(spark):
+def test_code_postal_format_flags_wrong_department_as_warning(spark):
+    # RETL0-49: downgraded from HARD FAIL to WARNING -- a real Paris-border
+    # postal-routing quirk (see quality-rules.md, rule 2.3) means a
+    # department-prefix mismatch is a legitimate edge case, not necessarily
+    # a broken department filter. WARNING severity never fails the run, but
+    # the violation must still be counted and flagged with the right
+    # severity so the printed report surfaces it for review.
     df = spark.createDataFrame([_good_row(code_postal="69001")])
     result = check_code_postal_format(df, "75")
-    assert not result.passed
+    assert result.passed
+    assert result.violation_count == 1
+    assert result.severity == "WARNING"
 
 
 def test_date_mutation_range_fails_outside_year(spark):
