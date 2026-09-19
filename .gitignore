@@ -32,3 +32,5 @@ secrets/
 .DS_Store
 .vscode/
 .idea/
+# RETL0-50: Dagster daemon/webserver shared runtime state (SQLite run/event storage) -- regenerated on container start, not portable across machines
+.dagster_home/

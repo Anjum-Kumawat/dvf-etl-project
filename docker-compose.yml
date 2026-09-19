@@ -39,6 +39,31 @@ services:
       POSTGRES_PASSWORD: dvf
     volumes:
       - ./:/opt/dvf-etl-project
+  # RETL0-50: a separate daemon process, required for sensors (and
+  # schedules) to actually be evaluated -- confirmed via the Dagster UI's
+  # Deployment > Daemons page showing Sensors/Backfill/Scheduler all "Not
+  # running" with the webserver-only setup above. Shares the same image,
+  # env vars, and -- critically -- the same volume mount as the dagster
+  # service, so both containers see the same DAGSTER_HOME (set inside the
+  # mounted repo in the Dockerfile) and coordinate through the same
+  # run/event storage rather than each having its own isolated state.
+  dagster-daemon:
+    build: ./orchestration/dagster
+    command: ["sh", "-c", "mkdir -p $$DAGSTER_HOME && dagster-daemon run -m orchestration.dagster.dvf_dagster.definitions"]
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: dvf
+      POSTGRES_USER: dvf
+      POSTGRES_PASSWORD: dvf
+    volumes:
+      - ./:/opt/dvf-etl-project
   metabase:
     image: metabase/metabase
     ports:
