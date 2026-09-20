@@ -70,8 +70,13 @@ services:
       - "3001:3000"
     depends_on:
       - postgres
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
 volumes:
   postgres_data:
+  metabase_data:
 # NOTE: this is a starting skeleton for Sprint 0.
 # P1 (ingestion/infra) owns filling in the Dagster build context,
 # env vars, and any additional services (e.g. a model-serving container in Sprint 6).

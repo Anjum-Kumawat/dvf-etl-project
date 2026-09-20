@@ -34,3 +34,6 @@ secrets/
 .idea/
 # RETL0-50: Dagster daemon/webserver shared runtime state (SQLite run/event storage) -- regenerated on container start, not portable across machines
 .dagster_home/
+
+# one-off backup used during the RETL0-54 Metabase persistence fix, not needed in the repo
+metabase-backup/
