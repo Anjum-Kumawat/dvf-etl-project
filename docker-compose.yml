@@ -1,6 +1,6 @@
 services:
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio
     container_name: minio
     command: server /data --console-address ":9001"
     ports:
@@ -11,6 +11,35 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - ./data:/data
+  # RETL0-54: found via a real fresh-clone test that nothing ever created
+  # the "bronze" MinIO bucket -- it existed in dev only because someone
+  # created it manually early in the project. A truly fresh clone hit
+  # NoSuchBucket on every upload (dvf_bronze, ban_bronze, geo_bronze,
+  # filosofi_bronze all failed this way). This is the standard MinIO +
+  # Docker Compose fix: a one-shot mc container that creates the bucket
+  # (idempotently -- --ignore-existing) if it doesn't already exist, then
+  # exits. dagster/dagster-daemon wait for it to actually finish, not just
+  # start (service_completed_successfully), since it's one-shot.
+  #
+  # Both minio and mc images point at quay.io, not Docker Hub: MinIO
+  # stopped publishing container images to Docker Hub in October 2025 and
+  # the minio/minio and minio/mc repos were delisted there entirely
+  # (confirmed by a real pull failure: "repository does not exist" for
+  # minio/mc, mid-RETL0-54). Our minio: service had been working this
+  # whole project only because the image was already cached locally from
+  # early setup -- on a genuinely fresh machine with no cache it would
+  # fail the same way. quay.io/minio/... is MinIO's own registry and still
+  # serves these images.
+  createbuckets:
+    image: quay.io/minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb --ignore-existing local/bronze;
+      exit 0;
+      "
   postgres:
     image: postgres:16
     ports:
@@ -26,8 +55,12 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - postgres
-      - minio
+      postgres:
+        condition: service_started
+      minio:
+        condition: service_started
+      createbuckets:
+        condition: service_completed_successfully
     environment:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
@@ -51,8 +84,12 @@ services:
     build: ./orchestration/dagster
     command: ["sh", "-c", "mkdir -p $$DAGSTER_HOME && dagster-daemon run -m orchestration.dagster.dvf_dagster.definitions"]
     depends_on:
-      - postgres
-      - minio
+      postgres:
+        condition: service_started
+      minio:
+        condition: service_started
+      createbuckets:
+        condition: service_completed_successfully
     environment:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
