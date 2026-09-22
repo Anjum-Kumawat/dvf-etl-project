@@ -61,3 +61,21 @@ def test_download_succeeds_with_valid_gzip(tmp_path, monkeypatch):
     dest = download("2024", "75")
     assert dest == local_path("2024", "75")
     assert dest.exists()
+
+
+def test_download_respects_publication_override(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+        gz.write(b"valid,csv,content\n" * 10)
+    gzip_bytes = buf.getvalue()
+
+    def fake_get(url, stream=True, timeout=30):
+        return FakeResponse(content=gzip_bytes)
+
+    monkeypatch.setattr("src.ingestion.download_dvf.requests.get", fake_get)
+
+    dest = download("2024", "75", publication="2026-10")
+    assert dest == local_path("2024", "75", "2026-10")
+    assert dest.exists()

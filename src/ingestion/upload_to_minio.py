@@ -40,15 +40,18 @@ def get_remote_checksum(client, bucket: str, key: str):
     return response["Metadata"].get("sha256")
 
 
-def upload(year: str, dept: str, client=None):
+def upload(year: str, dept: str, publication: str = None, client=None):
     """
     Upload one DVF partition to Bronze if missing or changed.
     Returns (status, local_checksum, remote_checksum_before) where status
     is one of "uploaded", "skipped", "changed".
+
+    publication: optional explicit DVF publication label (YYYY-MM). See
+    download.download() for why this exists.
     """
     client = client or get_client()
-    source = local_path(year, dept)
-    key = object_key(year, dept)
+    source = local_path(year, dept, publication)
+    key = object_key(year, dept, publication)
 
     if not source.exists():
         raise RuntimeError(f"local file not found: {source}")
@@ -70,12 +73,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", required=True)
     parser.add_argument("--dept", required=True)
+    parser.add_argument(
+        "--publication",
+        required=False,
+        default=None,
+        help=(
+            "DVF publication label (YYYY-MM), e.g. 2026-10. Defaults to "
+            "the current half-yearly cycle (paths.current_publication()) "
+            "if omitted."
+        ),
+    )
     args = parser.parse_args()
 
-    key = object_key(args.year, args.dept)
+    key = object_key(args.year, args.dept, args.publication)
 
     try:
-        status, local_checksum, remote_checksum_before = upload(args.year, args.dept)
+        status, local_checksum, remote_checksum_before = upload(args.year, args.dept, args.publication)
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
