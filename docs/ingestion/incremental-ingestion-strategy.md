@@ -56,16 +56,34 @@ RETL0-54.
 
 DVF is published twice yearly, in April and October
 (`docs/ingestion/bronze-dvf-procedure.md`). The `dvf_publication_schedule`
-Dagster schedule fires at 06:00 on 1 April and 1 October
+Dagster schedule fires at 06:00 UTC on 1 April and 1 October
 (`cron_schedule="0 6 1 4,10 *"`) and materializes all four department
 partitions of `dvf_pipeline_job`, since a new DVF publication means every
 department's Bronze/Silver/Gold data is eligible for a refresh.
 
-The schedule is defined with `default_status=DefaultScheduleStatus.STOPPED`
-so it does not fire unattended against the real data.gouv.fr endpoint in a
-development environment. It can be turned on from the Dagster UI's
-Automation tab, or triggered manually for a one-off demonstration run,
-without changing its defined cadence.
+The schedule is **defined** in code with
+`default_status=DefaultScheduleStatus.STOPPED`, so a fresh clone of this
+repository starts with the schedule stopped and never fires unattended
+against the real data.gouv.fr endpoint without a deliberate decision to
+turn it on. This code default is intentionally left unchanged.
+
+**Runtime decision for this submission:** the schedule's *live* toggle in
+the running Dagster instance has been switched to `Running` via the
+Automation tab (not by changing the code default) ahead of the real
+1 October 2026 publication cycle. Rationale: the project report is due
+30 September (before that cycle fires), but the oral defense is not until
+19 October -- 18 days after the real Oct 1, 06:00 UTC tick -- giving enough
+buffer to verify via `pipeline_alerts` and the Dagster run history whether
+it fired successfully, and to fix or re-run manually if it didn't, before
+presenting. This requires the Docker stack to actually be running at
+06:00 UTC on 1 October; Dagster does not retroactively catch up a missed
+tick by default. If the defense happens without ever seeing a real
+automated tick (stack was off at the right moment, or the tick failed and
+wasn't caught in time), the fallback evidence is the already-completed
+manual dry run documented below, which exercises the identical code path
+(`download_dvf.py` / `upload_to_minio.py` / `ban_ingest.py` /
+`run_dvf_silver.py`, all under an explicit `--publication` override) that
+the schedule itself calls.
 
 ## Idempotency already in place
 
