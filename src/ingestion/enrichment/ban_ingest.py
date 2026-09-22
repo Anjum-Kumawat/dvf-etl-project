@@ -116,9 +116,21 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", required=True)
     parser.add_argument("--dept", required=True)
+    parser.add_argument(
+        "--publication",
+        required=False,
+        default=None,
+        help=(
+            "DVF publication label (YYYY-MM), e.g. 2026-10. Defaults to "
+            "the current half-yearly cycle (paths.current_publication()) "
+            "if omitted. Must match whatever publication download_dvf.py "
+            "was run with for this year/dept -- this script reads that "
+            "Bronze DVF file to extract addresses from."
+        ),
+    )
     args = parser.parse_args()
 
-    dvf_path = dvf_local_path(args.year, args.dept)
+    dvf_path = dvf_local_path(args.year, args.dept, args.publication)
     if not dvf_path.exists():
         print(f"ERROR: DVF Bronze file not found at {dvf_path} — run download_dvf.py first", file=sys.stderr)
         sys.exit(1)
@@ -127,7 +139,7 @@ def main():
     n = extract_unique_addresses(dvf_path, addresses_path)
     print(f"Extracted {n} unique addresses")
 
-    result_path = ban_local_path(args.year, args.dept)
+    result_path = ban_local_path(args.year, args.dept, args.publication)
     geocode_csv(addresses_path, result_path)
 
     if not validate_non_empty(result_path):
@@ -135,7 +147,7 @@ def main():
         sys.exit(1)
 
     checksum = compute_sha256(result_path)
-    key = ban_object_key(args.year, args.dept)
+    key = ban_object_key(args.year, args.dept, args.publication)
     client = get_client()
     remote_checksum = get_remote_checksum(client, BUCKET, key)
 

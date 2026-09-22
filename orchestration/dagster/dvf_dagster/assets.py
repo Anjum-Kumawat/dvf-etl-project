@@ -17,9 +17,24 @@ from dagster import (
     schedule,
 )
 
+from src.ingestion.paths import current_publication
+
 PROJECT_ROOT = "/opt/dvf-etl-project"
 YEAR = "2024"
-PUBLICATION = "2026-04"
+
+# Real bug found while verifying the project brief's "a new half-yearly DVF
+# publication is integrated incrementally" success criterion: this used to
+# be a hardcoded string ("2026-04") that only happened to agree with
+# download_dvf.py/upload_to_minio.py's own auto-derived publication (via
+# paths.current_publication(), based on today's real date) because today's
+# date still fell in that same window. The moment the real calendar rolled
+# over to the next half-yearly cycle, Bronze ingestion would silently start
+# writing to a new publication= path while this constant kept pointing
+# silver_dvf at the old one -- requiring a source-code edit and redeploy to
+# "integrate" the new publication, which is not what "incremental" means.
+# Computed the same way ingestion does, once, at code-location load time, so
+# there is a single source of truth.
+PUBLICATION = current_publication()
 
 DEPARTMENTS = ["75", "92", "93", "94"]
 department_partitions = StaticPartitionsDefinition(DEPARTMENTS)
@@ -58,14 +73,23 @@ def _run(cmd: list, context: AssetExecutionContext) -> None:
 @asset(partitions_def=department_partitions, retry_policy=NETWORK_RETRY_POLICY)
 def dvf_bronze(context: AssetExecutionContext) -> None:
     dept = context.partition_key
-    _run(["python", "src/ingestion/download_dvf.py", "--year", YEAR, "--dept", dept], context)
-    _run(["python", "src/ingestion/upload_to_minio.py", "--year", YEAR, "--dept", dept], context)
+    _run(
+        ["python", "src/ingestion/download_dvf.py", "--year", YEAR, "--dept", dept, "--publication", PUBLICATION],
+        context,
+    )
+    _run(
+        ["python", "src/ingestion/upload_to_minio.py", "--year", YEAR, "--dept", dept, "--publication", PUBLICATION],
+        context,
+    )
 
 
 @asset(partitions_def=department_partitions, deps=[dvf_bronze], retry_policy=NETWORK_RETRY_POLICY)
 def ban_bronze(context: AssetExecutionContext) -> None:
     dept = context.partition_key
-    _run(["python", "src/ingestion/enrichment/ban_ingest.py", "--year", YEAR, "--dept", dept], context)
+    _run(
+        ["python", "src/ingestion/enrichment/ban_ingest.py", "--year", YEAR, "--dept", dept, "--publication", PUBLICATION],
+        context,
+    )
 
 
 @asset(partitions_def=department_partitions, retry_policy=NETWORK_RETRY_POLICY)

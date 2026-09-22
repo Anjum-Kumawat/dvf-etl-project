@@ -74,3 +74,15 @@ def test_upload_does_not_modify_local_file(tmp_path, monkeypatch):
     upload("2024", "75", client=client)
 
     assert dest.read_bytes() == before
+
+
+def test_upload_respects_publication_override(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_gzip(local_path("2024", "75", "2026-10"), b"data")
+
+    client = FakeS3Client()
+    status, local_checksum, remote_before = upload("2024", "75", publication="2026-10", client=client)
+
+    assert status == "uploaded"
+    assert remote_before is None
+    assert object_key("2024", "75", "2026-10") in client.uploaded

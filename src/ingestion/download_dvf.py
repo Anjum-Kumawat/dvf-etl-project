@@ -17,14 +17,20 @@ from paths import local_path
 BASE_URL = "https://files.data.gouv.fr/geo-dvf/latest/csv/{year}/departements/{dept}.csv.gz"
 
 
-def download(year: str, dept: str) -> Path:
+def download(year: str, dept: str, publication: str = None) -> Path:
     """
     Download and validate one DVF partition.
     Raises RuntimeError with a clear message on any HTTP or validation
     failure. Returns the local path on success.
+
+    publication: optional explicit DVF publication label (YYYY-MM), e.g.
+    "2026-10". Defaults to paths.current_publication() (today's real
+    half-yearly cycle) when omitted -- pass it explicitly to test or
+    backfill a specific publication without waiting for real calendar
+    time to pass.
     """
     url = BASE_URL.format(year=year, dept=dept)
-    dest = local_path(year, dept)
+    dest = local_path(year, dept, publication)
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Downloading {url}")
@@ -50,10 +56,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", required=True)
     parser.add_argument("--dept", required=True)
+    parser.add_argument(
+        "--publication",
+        required=False,
+        default=None,
+        help=(
+            "DVF publication label (YYYY-MM), e.g. 2026-10. Defaults to "
+            "the current half-yearly cycle (paths.current_publication()) "
+            "if omitted."
+        ),
+    )
     args = parser.parse_args()
 
     try:
-        dest = download(args.year, args.dept)
+        dest = download(args.year, args.dept, args.publication)
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

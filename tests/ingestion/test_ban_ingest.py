@@ -4,7 +4,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "ingestion" / "enrichment"))
-from ban_ingest import extract_unique_addresses, geocode_csv, ban_object_key
+from ban_ingest import extract_unique_addresses, geocode_csv, ban_object_key, main
+
+from src.ingestion.paths import local_path
 
 
 def make_dvf_fixture(path: Path):
@@ -98,3 +100,48 @@ def test_geocode_csv_stabilizes_score_jitter(tmp_path, monkeypatch):
 def test_ban_object_key_format():
     key = ban_object_key("2024", "75", publication="2026-04")
     assert key == "ban/publication=2026-04/year=2024/department=75/75.csv"
+
+
+class _FakeMinioClient:
+    """Records the args of the single upload_file() call main() makes."""
+
+    def __init__(self):
+        self.uploaded = None
+
+    def upload_file(self, filename, bucket, key, ExtraArgs=None):
+        self.uploaded = {"filename": filename, "bucket": bucket, "key": key, "ExtraArgs": ExtraArgs}
+
+
+def test_main_respects_publication_override(tmp_path, monkeypatch):
+    # RETL0-9 follow-up: confirms main()'s new --publication flag actually
+    # reaches all three path/key lookups (the DVF file it reads addresses
+    # from, and its own BAN output path/key) instead of each silently
+    # auto-deriving paths.current_publication() independently -- which was
+    # the real bug found by reading this file's original content.
+    monkeypatch.chdir(tmp_path)
+
+    dvf_path = local_path("2024", "75", "2026-10")
+    make_dvf_fixture(dvf_path)
+
+    class FakeGeocodeResponse:
+        status_code = 200
+        content = b"id,latitude,longitude\n0,48.8606,2.3376\n"
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr("ban_ingest.requests.post", lambda url, files, data, timeout: FakeGeocodeResponse())
+
+    fake_client = _FakeMinioClient()
+    monkeypatch.setattr("ban_ingest.get_client", lambda: fake_client)
+    monkeypatch.setattr("ban_ingest.get_remote_checksum", lambda client, bucket, key: None)
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["ban_ingest.py", "--year", "2024", "--dept", "75", "--publication", "2026-10"],
+    )
+
+    main()
+
+    assert fake_client.uploaded is not None
+    assert fake_client.uploaded["key"] == "ban/publication=2026-10/year=2024/department=75/75.csv"
