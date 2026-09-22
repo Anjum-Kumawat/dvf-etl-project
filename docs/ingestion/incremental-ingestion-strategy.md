@@ -76,3 +76,53 @@ enrichment ingestion scripts) compares a SHA-256 checksum against what is
 already stored in MinIO and skips the transfer when nothing changed. A
 partition can be re-materialized on demand without wasting bandwidth or
 creating duplicate objects.
+
+## Verified: a new half-yearly publication integrates incrementally
+
+The project brief's success criterion for this area reads "a new
+half-yearly DVF publication is integrated incrementally, without
+reprocessing history." Until now this had never actually been tested --
+only designed for.
+
+**Real bug found while designing the test.** `assets.py` hardcoded
+`PUBLICATION = "2026-04"` as a static string, completely disconnected
+from `src/ingestion/paths.py`'s `current_publication()` (which
+`download_dvf.py`/`upload_to_minio.py` already used to auto-derive the
+publication label from the real calendar date). The two only agreed by
+coincidence of today's date falling in the same half-yearly window. The
+moment the real October cycle arrived, Bronze ingestion would silently
+start writing to a new `publication=` path while this constant kept
+pointing `silver_dvf` at the old one -- requiring a source-code edit and
+redeploy, which is not what "incremental" means. Separately,
+`ban_ingest.py` had no `--publication` override at all, and its own
+`dvf_path`/`result_path`/`object_key` lookups each independently
+auto-derived the publication with no way to force a specific value.
+
+**Fix.** `assets.py` now imports and computes `PUBLICATION =
+current_publication()` once at code-location load time, from the same
+source of truth ingestion already used. `download_dvf.py`,
+`upload_to_minio.py`, and `ban_ingest.py` all gained an optional
+`--publication` CLI override, so a specific publication can be forced for
+testing without waiting for real calendar time to pass.
+
+**Real dry run.** With the fix in place, department 75 was forced through
+the full Bronze -> Silver chain under an explicit `--publication 2026-10`
+(a publication label that does not naturally occur until real October
+2026), while departments 92/93/94 were left untouched:
+
+- Before: `silver_dvf` row counts were 75=67072, 92=51795, 93=36353,
+  94=39691.
+- After forcing dept 75 through `download_dvf.py`, `upload_to_minio.py`,
+  `ban_ingest.py`, and `run_dvf_silver.py` all under
+  `--publication 2026-10`: `silver_dvf` row counts were 75=67072 (replaced
+  in place, not duplicated -- consistent with the
+  `DELETE FROM silver_dvf WHERE code_departement = %s` then append write
+  pattern), 92=51795, 93=36353, 94=39691 (byte-for-byte unchanged).
+- Bronze retained **both** publications for department 75 afterward:
+  `dvf/publication=2026-04/year=2024/department=75/75.csv.gz` and
+  `dvf/publication=2026-10/year=2024/department=75/75.csv.gz` both exist,
+  and likewise `ban/publication=2026-04/.../75.csv` and
+  `ban/publication=2026-10/.../75.csv` both exist -- proving history is
+  retained, not overwritten or reprocessed.
+
+This confirms the success criterion holds for real, not just by design.
