@@ -1,6 +1,6 @@
 # Gold Layer Column-Level Lineage
 
-**Ticket:** RETL0-95 · **Owner:** Anjum Kumawat (Data Engineering) · **Scope:** dept 75, 2024
+**Ticket:** RETL0-95 · **Owner:** Anjum Kumawat (Data Engineering) · **Scope:** all 4 pilot departments (75, 92, 93, 94), 2024
 
 ## Overview
 
@@ -11,10 +11,10 @@ filtering and mutation-level reduction logic (`_filtered_priced()` in
 `price_aggregates.py`) -- `department_rollup.py` imports and reuses it
 rather than reimplementing it, so the two tables cannot drift apart.
 
-| Table | Grain | Row count |
+| Table | Grain | Row count (real, re-verified via psql after all 4 departments were ingested) |
 |---|---|---|
-| `gold_price_by_municipality_quarter` | (code_commune, quarter) | 80 (20 communes x 4 quarters) |
-| `gold_price_by_department_quarter` | (code_departement, quarter) | 4 (1 department x 4 quarters) |
+| `gold_price_by_municipality_quarter` | (code_commune, quarter) | 571 rows across 143 distinct communes |
+| `gold_price_by_department_quarter` | (code_departement, quarter) | 16 (4 departments x 4 quarters) |
 
 ## Shared pipeline (applies to every column below)
 
@@ -77,7 +77,9 @@ adds no new enrichment, only aggregation. Most relevant here:
   population** -- it is not a full count of every DVF disposition row for
   that commune/quarter (`silver_dvf` has more rows than distinct mutations,
   by design; see RETL0-41's dedup and RETL0-46's mutation-level reduction).
-- **Both tables cover dept 75 only** (this project's pilot scope) --
-  `gold_price_by_department_quarter` currently rolls up to a single
-  department because only one department has been ingested, not because
-  the logic is dept-75-specific.
+- **Both tables cover this project's 4-department pilot scope** (75, 92, 93,
+  94), not all of Île-de-France or France. This document originally stated
+  Gold covered dept 75 only -- true when RETL0-95 was first written, before
+  the other 3 departments were ingested. Corrected here with the real,
+  re-verified row counts (16 department-quarter rows, 571 municipality-quarter
+  rows across 143 communes) rather than left stale.
