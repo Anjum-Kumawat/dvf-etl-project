@@ -147,5 +147,11 @@ dvf_pipeline_job = define_asset_job(
     default_status=DefaultScheduleStatus.STOPPED,
 )
 def dvf_publication_schedule(context):
+    # Dagster requires a run_key on every RunRequest when a schedule tick
+    # yields more than one. Without it, the real 2026-10-01 tick failed with
+    # "Schedules that return multiple RunRequests must specify a run_key"
+    # and launched 0 runs. Keying on the tick's publication month + department
+    # also makes a re-evaluated tick idempotent (no duplicate runs).
+    publication = context.scheduled_execution_time.strftime("%Y-%m")
     for dept in DEPARTMENTS:
-        yield RunRequest(partition_key=dept)
+        yield RunRequest(run_key=f"{publication}-{dept}", partition_key=dept)
